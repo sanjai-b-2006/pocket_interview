@@ -2,6 +2,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.core.config import settings
 from app.models.db import init_db
 from app.routers import answer, report, session
 from app.services.llm import GemmaAPIError
@@ -15,7 +16,7 @@ def gemma_api_error_handler(request: Request, exc: GemmaAPIError) -> JSONRespons
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=[o.strip() for o in settings.cors_origins.split(",") if o.strip()],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

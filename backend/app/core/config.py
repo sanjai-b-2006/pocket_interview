@@ -12,6 +12,8 @@ class Settings(BaseSettings):
 
     database_url: str = "sqlite:///./interview_coach.db"
 
+    cors_origins: str = "http://localhost:3000"  # comma-separated list of allowed frontend origins
+
     class Config:
         env_file = ".env"
 
