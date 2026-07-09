@@ -7,6 +7,7 @@ Unicorn Track, targeting the Best Use of Gemma 4 bonus.
 ## Table of contents
 
 - [What it does](#what-it-does)
+- [Workflow diagram](#workflow-diagram)
 - [Full user workflow](#full-user-workflow)
 - [Feature list](#feature-list)
 - [Architecture](#architecture)
@@ -29,6 +30,40 @@ next actions.
 The whole pipeline is a deliberately **hybrid** design: cheap, high-frequency work (speech-to-text,
 audio signal processing) runs **locally**, and the expensive reasoning/writing work is routed to
 **Gemma 4** — only when it's actually needed (once per answer, not continuously).
+
+## Workflow diagram
+
+End-to-end flow, from setup through the final report:
+
+```mermaid
+flowchart TD
+    A["User: role, company, job description,\nresume (optional), experience level,\n# questions, sample-answer mode, timer"] --> B["POST /sessions\n(multipart form)"]
+    B --> C{"Resume attached?"}
+    C -- yes --> D["resume.py: extract text\n(pypdf)"]
+    C -- no --> E
+    D --> E["llm.py: generate_questions\n1 fixed basic question (from 27-pool)\n+ N-1 Gemma-generated questions\neasy -> hard, domain-specific,\nresume-aware, experience-calibrated"]
+    E --> F["Gemma 4\n(Fireworks AI / OpenRouter)"]
+    F --> G["SQLite: Session + Questions\n(with sample answers)"]
+    G --> H["Live Session screen:\nrecord answer (mic + waveform + timer)"]
+    H --> I["POST /sessions/id/questions/qid/answer\n(multipart: audio)"]
+    I --> J["asr.py: faster-whisper\ntranscribe (CPU, ROCm-ready)"]
+    I --> K["prosody.py: librosa\nWPM, pitch variation, filler words,\npause ratio, volume consistency"]
+    J --> L["llm.py: generate_answer_feedback"]
+    K --> L
+    L --> F
+    F --> M["SQLite: Answer\n(scores + feedback + metrics)"]
+    M --> N{"More questions?"}
+    N -- yes --> H
+    N -- no --> O["GET /sessions/id/report"]
+    O --> P["llm.py: generate_report"]
+    P --> F
+    P --> Q["SQLite: Report\n(summary + top actions)"]
+    Q --> R["Report screen:\nscore trend chart, summary,\ntop actions, per-question detail"]
+```
+
+Every box on the left (resume extraction, ASR, prosody) runs **locally** and costs nothing; every
+arrow into Gemma 4 is the only part that touches a paid LLM call, and each answer triggers exactly
+one such call.
 
 ## Full user workflow
 
