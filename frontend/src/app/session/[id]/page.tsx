@@ -18,6 +18,7 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
 
   const [questions, setQuestions] = useState<Question[] | null>(null);
   const [role, setRole] = useState("");
+  const [company, setCompany] = useState("");
   const [index, setIndex] = useState(0);
   const [feedback, setFeedback] = useState<AnswerFeedback | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -28,6 +29,7 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
     getSession(sessionId)
       .then((s) => {
         setRole(s.role);
+        setCompany(s.company);
         setQuestions(s.questions);
       })
       .catch(() => setError("Couldn't load this session."));
@@ -78,7 +80,7 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
   return (
     <main className="flex flex-1 flex-col items-center px-6 py-12 gap-6">
       <div className="w-full max-w-2xl flex items-center justify-between">
-        <Badge>{role}</Badge>
+        <Badge>{company ? `${role} @ ${company}` : role}</Badge>
         <div className="flex gap-1.5">
           {questions.map((q, i) => (
             <span

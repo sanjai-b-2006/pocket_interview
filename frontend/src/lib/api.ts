@@ -12,6 +12,7 @@ export interface Question {
 export interface SessionResponse {
   session_id: string;
   role: string;
+  company: string;
   questions: Question[];
 }
 
@@ -50,13 +51,24 @@ async function handle<T>(res: Response): Promise<T> {
 
 export async function createSession(
   role: string,
+  company: string,
   jobDescription: string,
-  numQuestions: number
+  numQuestions: number,
+  experienceLevel: string,
+  resumeFile: File | null
 ): Promise<SessionResponse> {
+  const form = new FormData();
+  form.append("role", role);
+  form.append("company", company);
+  form.append("job_description", jobDescription);
+  form.append("num_questions", String(numQuestions));
+  form.append("experience_level", experienceLevel);
+  if (resumeFile) form.append("resume", resumeFile);
+
   const res = await fetch(`${API_BASE}/sessions`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...llmHeaders() },
-    body: JSON.stringify({ role, job_description: jobDescription, num_questions: numQuestions }),
+    headers: llmHeaders(),
+    body: form,
   });
   return handle<SessionResponse>(res);
 }

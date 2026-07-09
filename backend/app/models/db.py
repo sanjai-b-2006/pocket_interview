@@ -22,6 +22,8 @@ class InterviewSession(Base):
 
     id = Column(String, primary_key=True, default=gen_id)
     role = Column(String, nullable=False)
+    company = Column(String, default="")
+    experience_level = Column(String, default="")
     job_description = Column(String, default="")
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     status = Column(String, default="active")  # active | completed

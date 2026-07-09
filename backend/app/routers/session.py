@@ -1,29 +1,55 @@
-from fastapi import APIRouter, Depends, HTTPException
+import os
+import tempfile
+from typing import Optional
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy.orm import Session as DbSession
 
 from app.models.db import InterviewSession, get_db
-from app.models.schemas import SessionCreateRequest, SessionCreateResponse
+from app.models.schemas import SessionCreateResponse
 from app.routers.llm_override import get_llm_override
 from app.services import interview
+from app.services import resume as resume_service
 from app.services.llm import LLMOverride
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
 
 @router.post("", response_model=SessionCreateResponse)
-def create_session(
-    payload: SessionCreateRequest,
+async def create_session(
+    role: str = Form(...),
+    company: str = Form(""),
+    job_description: str = Form(""),
+    experience_level: str = Form(""),
+    num_questions: int = Form(5),
+    resume: Optional[UploadFile] = File(None),
     db: DbSession = Depends(get_db),
     override: LLMOverride = Depends(get_llm_override),
 ):
+    resume_text = ""
+    if resume is not None and resume.filename:
+        suffix = os.path.splitext(resume.filename)[1] or ".txt"
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+            tmp.write(await resume.read())
+            tmp_path = tmp.name
+        try:
+            resume_text = resume_service.extract_text(tmp_path, resume.filename)
+        finally:
+            os.unlink(tmp_path)
+
     session = interview.create_session(
         db,
-        role=payload.role,
-        job_description=payload.job_description,
-        num_questions=payload.num_questions,
+        role=role,
+        job_description=job_description,
+        num_questions=num_questions,
+        company=company,
+        experience_level=experience_level,
+        resume_text=resume_text,
         override=override,
     )
-    return SessionCreateResponse(session_id=session.id, role=session.role, questions=session.questions)
+    return SessionCreateResponse(
+        session_id=session.id, role=session.role, company=session.company, questions=session.questions
+    )
 
 
 @router.get("/{session_id}", response_model=SessionCreateResponse)
@@ -31,4 +57,6 @@ def get_session(session_id: str, db: DbSession = Depends(get_db)):
     session = db.get(InterviewSession, session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
-    return SessionCreateResponse(session_id=session.id, role=session.role, questions=session.questions)
+    return SessionCreateResponse(
+        session_id=session.id, role=session.role, company=session.company, questions=session.questions
+    )

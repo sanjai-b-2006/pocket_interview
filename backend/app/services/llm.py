@@ -1,4 +1,5 @@
 import json
+import random
 import re
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
@@ -6,6 +7,36 @@ from typing import Any, Dict, List, Optional
 import httpx
 
 from app.core.config import settings
+
+BASIC_QUESTIONS = [
+    "Tell me about yourself.",
+    "What do you know about {company}, and why do you want to work here?",
+    "Walk me through your resume.",
+    "Why are you interested in this role?",
+    "What makes you a good fit for this position?",
+    "What are your thoughts on {company} and what we do?",
+    "Why do you want to leave your current job?",
+    "What would you say are your greatest strengths?",
+    "What do you consider your biggest weakness?",
+    "Where do you see yourself in five years?",
+    "Why should we hire you over other candidates?",
+    "What motivates you to do your best work?",
+    "Describe your ideal work environment.",
+    "How do you handle stress or working under pressure?",
+    "What would you consider your greatest professional achievement?",
+    "What are your salary expectations for this role?",
+    "Why did you choose this career path?",
+    "How would your previous manager or teammates describe you?",
+    "Do you prefer working independently or as part of a team?",
+    "How do you prioritize tasks when you have multiple deadlines?",
+    "What's a significant challenge you've faced, and how did you overcome it?",
+    "How do you respond to feedback or criticism?",
+    "What are you looking for in your next role?",
+    "Why did you decide to apply to {company}?",
+    "What do you know about our industry and main competitors?",
+    "What's something you're passionate about outside of work?",
+    "How do you stay current in your field?",
+]
 
 
 class GemmaAPIError(Exception):
@@ -71,25 +102,59 @@ class GemmaClient:
         role: str,
         job_description: str,
         num_questions: int,
+        company: str = "",
+        experience_level: str = "",
+        resume_text: str = "",
         override: Optional[LLMOverride] = None,
     ) -> List[Dict[str, str]]:
+        basic_question = random.choice(BASIC_QUESTIONS).format(company=company or "the company")
+        remaining = max(num_questions - 1, 0)
+
         system = (
             "You are an expert technical and behavioral interviewer. Respond ONLY with a JSON "
             "object: {\"questions\": [{\"text\": \"...\", \"sample_answer\": \"...\"}, ...]}. "
             "sample_answer should be a strong, concise model answer (3-5 sentences) a top "
             "candidate might give, useful for the candidate to compare against afterward."
         )
+        experience_line = (
+            f"Candidate's experience level: {experience_level}. Calibrate question difficulty and "
+            "depth to this level.\n"
+            if experience_level.strip()
+            else ""
+        )
+        resume_block = (
+            "Candidate's resume (use it to ask at least one specific question about a real "
+            f"project or piece of experience mentioned in it):\n{resume_text}\n"
+            if resume_text.strip()
+            else ""
+        )
         user = (
-            f"Generate {num_questions} realistic mock interview questions for the role: {role}.\n"
-            f"Job description context (may be empty): {job_description}\n"
-            "Mix behavioral and role-specific technical questions."
+            f"The FIRST question must be exactly this basic warm-up question (do not alter the "
+            f'wording): "{basic_question}" -- write a tailored sample_answer for it given the '
+            f"role/company context below.\n"
+            f"{experience_line}"
+            f"Then generate {remaining} additional realistic mock interview questions for the "
+            f"role: {role}"
+            + (f" at {company}" if company else "")
+            + f".\nJob description context (may be empty): {job_description}\n"
+            f"{resume_block}"
+            "Mix behavioral questions with role-specific technical questions tailored to this "
+            "role's actual industry/domain (e.g. a manufacturing role should get questions about "
+            "topics like quality control or product recalls, not generic software questions). "
+            "Order the additional questions from EASIEST to HARDEST -- the last question should "
+            "be the most challenging. "
+            f"Return {num_questions} questions total, in order, with the basic warm-up question first."
         )
         content = self._chat(system, user, override)
         data = _extract_json(content)
-        return [
+        questions = [
             {"text": q["text"], "sample_answer": q.get("sample_answer", "")}
             for q in list(data["questions"])[:num_questions]
         ]
+        if not questions or questions[0]["text"].strip() != basic_question:
+            questions.insert(0, {"text": basic_question, "sample_answer": ""})
+            questions = questions[:num_questions]
+        return questions
 
     def generate_answer_feedback(
         self,

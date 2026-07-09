@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { Sparkles, Mic, LineChart } from "lucide-react";
+import { Sparkles, Mic, LineChart, Paperclip, X } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
@@ -16,17 +16,27 @@ const SAMPLE_ANSWER_OPTIONS: { value: SampleAnswerMode; label: string }[] = [
   { value: "end", label: "At the end" },
   { value: "off", label: "Don't show" },
 ];
+const EXPERIENCE_LEVELS = [
+  "Entry-level (0-1 yrs)",
+  "Mid-level (2-5 yrs)",
+  "Senior (5+ yrs)",
+  "Staff/Lead (8+ yrs)",
+];
 
 export default function HomePage() {
   const router = useRouter();
   const [role, setRole] = useState("");
+  const [company, setCompany] = useState("");
   const [jobDescription, setJobDescription] = useState("");
   const [numQuestions, setNumQuestions] = useState(5);
+  const [experienceLevel, setExperienceLevel] = useState(EXPERIENCE_LEVELS[1]);
+  const [resumeFile, setResumeFile] = useState<File | null>(null);
   const [sampleAnswerMode, setSampleAnswerMode] = useState<SampleAnswerMode>("end");
   const [timerEnabled, setTimerEnabled] = useState(false);
   const [timerSeconds, setTimerSeconds] = useState(90);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const s = getSettings();
@@ -45,7 +55,14 @@ export default function HomePage() {
     setLoading(true);
     saveSettings({ sampleAnswerMode, timerEnabled, timerSeconds });
     try {
-      const session = await createSession(role.trim(), jobDescription.trim(), numQuestions);
+      const session = await createSession(
+        role.trim(),
+        company.trim(),
+        jobDescription.trim(),
+        numQuestions,
+        experienceLevel,
+        resumeFile
+      );
       router.push(`/session/${session.session_id}`);
     } catch {
       setError("Couldn't start the session. Is the backend running?");
@@ -106,6 +123,23 @@ export default function HomePage() {
 
             <div className="flex flex-col gap-2">
               <label className="text-sm font-medium text-foreground/80">
+                Company <span className="text-foreground/40">(optional)</span>
+              </label>
+              <input
+                value={company}
+                onChange={(e) => setCompany(e.target.value)}
+                placeholder="e.g. Acme Corp"
+                className="rounded-xl border border-panel-border bg-black/20 px-4 py-3 text-sm outline-none focus:border-accent"
+              />
+              <p className="text-xs text-foreground/40">
+                Every interview includes at least one basic warm-up question (e.g. &ldquo;Tell me
+                about yourself&rdquo; or &ldquo;What do you know about {company || "the company"}
+                ?&rdquo;).
+              </p>
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <label className="text-sm font-medium text-foreground/80">
                 Job description <span className="text-foreground/40">(optional)</span>
               </label>
               <textarea
@@ -131,6 +165,69 @@ export default function HomePage() {
                 style={{ accentColor: "var(--accent)" }}
                 className="w-full cursor-pointer"
               />
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <label className="text-sm font-medium text-foreground/80">Experience level</label>
+              <div className="flex flex-wrap gap-2">
+                {EXPERIENCE_LEVELS.map((level) => (
+                  <button
+                    type="button"
+                    key={level}
+                    onClick={() => setExperienceLevel(level)}
+                    className={`rounded-xl border px-3 py-2 text-xs transition-colors ${
+                      experienceLevel === level
+                        ? "border-accent bg-accent/10 text-foreground"
+                        : "border-panel-border text-foreground/60 hover:text-foreground"
+                    }`}
+                  >
+                    {level}
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-foreground/40">
+                Question difficulty is calibrated to this level, and always ordered easy to hard.
+              </p>
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <label className="text-sm font-medium text-foreground/80">
+                Resume <span className="text-foreground/40">(optional)</span>
+              </label>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".pdf,.txt,.md"
+                className="hidden"
+                onChange={(e) => setResumeFile(e.target.files?.[0] ?? null)}
+              />
+              {resumeFile ? (
+                <div className="flex items-center justify-between rounded-xl border border-panel-border bg-black/20 px-4 py-3 text-sm">
+                  <span className="truncate">{resumeFile.name}</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setResumeFile(null);
+                      if (fileInputRef.current) fileInputRef.current.value = "";
+                    }}
+                    className="text-foreground/50 hover:text-foreground"
+                    aria-label="Remove resume"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="flex items-center justify-center gap-2 rounded-xl border border-dashed border-panel-border px-4 py-3 text-sm text-foreground/60 hover:text-foreground hover:border-accent/60 transition-colors"
+                >
+                  <Paperclip size={16} /> Attach resume (PDF or text)
+                </button>
+              )}
+              <p className="text-xs text-foreground/40">
+                If attached, at least one question will ask about a specific project from it.
+              </p>
             </div>
 
             <div className="flex flex-col gap-2">

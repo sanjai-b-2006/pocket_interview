@@ -12,11 +12,27 @@ def create_session(
     role: str,
     job_description: str,
     num_questions: int,
+    company: str = "",
+    experience_level: str = "",
+    resume_text: str = "",
     override: Optional[LLMOverride] = None,
 ) -> InterviewSession:
-    questions_data = gemma_client.generate_questions(role, job_description, num_questions, override)
+    questions_data = gemma_client.generate_questions(
+        role,
+        job_description,
+        num_questions,
+        company=company,
+        experience_level=experience_level,
+        resume_text=resume_text,
+        override=override,
+    )
 
-    session = InterviewSession(role=role, job_description=job_description)
+    session = InterviewSession(
+        role=role,
+        company=company,
+        experience_level=experience_level,
+        job_description=job_description,
+    )
     db.add(session)
     db.flush()
 

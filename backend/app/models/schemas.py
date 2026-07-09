@@ -6,12 +6,6 @@ if TYPE_CHECKING:
     from app.models.db import Answer
 
 
-class SessionCreateRequest(BaseModel):
-    role: str
-    job_description: str = ""
-    num_questions: int = 5
-
-
 class QuestionOut(BaseModel):
     id: str
     order: int
@@ -25,6 +19,7 @@ class QuestionOut(BaseModel):
 class SessionCreateResponse(BaseModel):
     session_id: str
     role: str
+    company: str = ""
     questions: List[QuestionOut]
 
 
