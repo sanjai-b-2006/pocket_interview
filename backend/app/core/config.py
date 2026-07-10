@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     asr_device: str = "cpu"  # "cpu" now, "cuda" once ROCm-enabled torch is available on AMD Developer Cloud
     asr_model_size: str = "base"
     asr_compute_type: str = "int8"
+    enable_pitch_analysis: bool = True  # set false on memory-constrained hosts (skips numba-JIT pyin pass)
 
     database_url: str = "sqlite:///./interview_coach.db"
 

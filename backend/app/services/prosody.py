@@ -5,6 +5,7 @@ from typing import Dict, List, Optional, Tuple
 import librosa
 import numpy as np
 
+from app.core.config import settings
 from app.services.asr import TranscriptResult
 
 FILLER_WORDS = {"um", "umm", "uh", "uhh", "like", "actually", "basically", "literally"}
@@ -105,7 +106,8 @@ def compute_prosody(audio_path: str, transcript: TranscriptResult) -> Dict[str, 
     y, sr = librosa.load(audio_path, sr=16000, mono=True)
     word_count = len(transcript.words) if transcript.words else len(transcript.text.split())
 
-    f0, voiced_flag, times = _compute_f0(y, sr)
+    # pyin's numba JIT compilation is a real memory/CPU spike -- skip it on constrained hosts.
+    f0, voiced_flag, times = _compute_f0(y, sr) if settings.enable_pitch_analysis else (None, None, None)
 
     return {
         "words_per_minute": _words_per_minute(word_count, transcript.duration_sec),

@@ -128,7 +128,13 @@ def _extract_json(text: str) -> Dict[str, Any]:
 
 
 class GemmaClient:
-    def _chat(self, system: str, user: str, override: Optional[LLMOverride] = None) -> str:
+    def _chat(
+        self,
+        system: str,
+        user: str,
+        override: Optional[LLMOverride] = None,
+        max_tokens: int = 700,
+    ) -> str:
         api_key = (override and override.api_key) or settings.fireworks_api_key
         base_url = (override and override.base_url) or settings.fireworks_base_url
         model = (override and override.model) or settings.gemma_model
@@ -144,9 +150,9 @@ class GemmaClient:
                         {"role": "user", "content": user},
                     ],
                     "temperature": 0.4,
-                    "max_tokens": 1200,
+                    "max_tokens": max_tokens,
                 },
-                timeout=60.0,
+                timeout=45.0,
             )
             resp.raise_for_status()
         except httpx.HTTPStatusError as exc:
@@ -213,8 +219,9 @@ class GemmaClient:
         system = (
             f"You are an expert interview coach. {framing} Respond ONLY with a JSON object: "
             '{"questions": [{"text": "...", "sample_answer": "...", "persona": "..."}, ...]}. '
-            "sample_answer should be a strong, concise model answer (3-5 sentences) a top "
-            "candidate might give, useful for the candidate to compare against afterward. "
+            "sample_answer should be a strong, concise model answer (2-3 short sentences, no more) "
+            "a top candidate might give, useful for the candidate to compare against afterward. "
+            "Keep every question's text to one sentence. Be concise everywhere to respond quickly. "
             f"{persona_instruction}"
         )
         experience_line = (
@@ -258,7 +265,7 @@ class GemmaClient:
                 "question first."
             )
 
-        content = self._chat(system, user, override)
+        content = self._chat(system, user, override, max_tokens=min(1800, 250 + num_questions * 110))
         data = _extract_json(content)
         questions = [
             {
@@ -306,7 +313,7 @@ class GemmaClient:
             f"pause_ratio={prosody['pause_ratio']:.2f} (fraction of time silent), "
             f"volume_consistency={prosody['volume_consistency']:.2f} (1=very steady)."
         )
-        content = self._chat(system, user, override)
+        content = self._chat(system, user, override, max_tokens=400)
         return _extract_json(content)
 
     def generate_report(
@@ -336,7 +343,7 @@ class GemmaClient:
             f"Per-question detail:\n{transcript_block}\n"
             "Write an encouraging but candid summary and 3 concrete, prioritized next actions."
         )
-        content = self._chat(system, user, override)
+        content = self._chat(system, user, override, max_tokens=400)
         return _extract_json(content)
 
     def generate_cheat_sheet(
@@ -359,7 +366,7 @@ class GemmaClient:
             for qa in qa_pairs
         )
         user = f"Role: {role}\nPer-question detail:\n{transcript_block}\n"
-        content = self._chat(system, user, override)
+        content = self._chat(system, user, override, max_tokens=600)
         return _extract_json(content).get("cheat_sheet", "")
 
 
