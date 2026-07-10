@@ -94,8 +94,8 @@ function HomeContent() {
           <span className="gradient-text">Pocket Interview Coach</span>
         </h1>
         <p className="text-foreground/60 text-xl">
-          Practice out loud. Get coached on what you said <span className="text-foreground">and</span> how
-          you said it &mdash; pace, tone, filler words, and confidence.
+          Practice out loud. Get coached on what you said <span className="text-foreground">and</span>{" "}
+          how you said it &mdash; pace, tone, filler words, and confidence.
         </p>
       </motion.div>
 
