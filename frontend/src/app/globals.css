@@ -2,11 +2,12 @@
 
 :root {
   --background: #05050a;
-  --foreground: #f4f4f7;
+  --foreground: #f7f7fb;
   --panel: #0f0f1a;
-  --panel-border: #24243a;
-  --accent: #8b5cf6;
-  --accent-2: #22d3ee;
+  --panel-border: #292942;
+  --accent: #9b6bff;
+  --accent-2: #2dd4ee;
+  --accent-3: #ff8a5c;
 }
 
 @theme inline {
@@ -16,13 +17,19 @@
   --color-panel-border: var(--panel-border);
   --color-accent: var(--accent);
   --color-accent-2: var(--accent-2);
+  --color-accent-3: var(--accent-3);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
+html {
+  font-size: 17px;
+}
+
 body {
-  background: radial-gradient(ellipse 80% 60% at 50% -10%, rgba(139, 92, 246, 0.25), transparent),
-    radial-gradient(ellipse 60% 50% at 100% 0%, rgba(34, 211, 238, 0.12), transparent),
+  background: radial-gradient(ellipse 90% 65% at 50% -10%, rgba(155, 107, 255, 0.3), transparent),
+    radial-gradient(ellipse 70% 55% at 100% 0%, rgba(45, 212, 238, 0.16), transparent),
+    radial-gradient(ellipse 60% 45% at 0% 100%, rgba(255, 138, 92, 0.08), transparent),
     var(--background);
   color: var(--foreground);
   font-family: var(--font-sans), Arial, Helvetica, sans-serif;
@@ -51,4 +58,23 @@ body {
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
+}
+
+@media print {
+  body {
+    background: white !important;
+    color: #111 !important;
+  }
+  .glass-panel {
+    background: white !important;
+    border: 1px solid #ddd !important;
+    box-shadow: none !important;
+  }
+  .gradient-text {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  * {
+    color: #111 !important;
+  }
 }

@@ -38,6 +38,70 @@ BASIC_QUESTIONS = [
     "How do you stay current in your field?",
 ]
 
+PERSONAS = {
+    "friendly_recruiter": (
+        "a warm, encouraging recruiter who wants the candidate to succeed and helps them feel at "
+        "ease, while still asking real questions"
+    ),
+    "tough_tech_lead": (
+        "a demanding technical lead who probes deeply into technical decisions, pushes back on "
+        "vague answers, and expects precision"
+    ),
+    "skeptical_panel": (
+        "a skeptical panel interviewer who questions assumptions, looks for holes in reasoning, "
+        "and rarely gives easy validation"
+    ),
+    "rapid_fire_founder": (
+        "a fast-paced startup founder who asks rapid, direct questions and values concise, "
+        "high-signal answers over long-winded ones"
+    ),
+}
+PANEL_ROTATION = list(PERSONAS.keys())
+
+SESSION_TYPES = {
+    "job_interview": {
+        "label": "Job Interview",
+        "framing": "This is a standard job interview practice session.",
+        "basic_questions": BASIC_QUESTIONS,
+    },
+    "salary_negotiation": {
+        "label": "Salary Negotiation",
+        "framing": (
+            "This is a salary negotiation practice conversation, not a job interview -- focus on "
+            "negotiation tactics, leverage, and framing, not general job qualifications."
+        ),
+        "basic_questions": [
+            "What are your salary expectations for this role?",
+            "Walk me through how you researched market rate for this position.",
+            "What's most important to you in this offer besides base salary?",
+            "Why do you believe you deserve this level of compensation?",
+            "If we can't meet your number, what would you be willing to trade off?",
+        ],
+    },
+    "performance_review": {
+        "label": "Performance Review",
+        "framing": "This is a performance review practice conversation between a manager and an employee.",
+        "basic_questions": [
+            "How do you think this review period went overall?",
+            "What accomplishment are you most proud of this period?",
+            "Where do you think you could have done better?",
+            "How would you rate your own performance, and why?",
+            "What support do you need from me to grow in the next period?",
+        ],
+    },
+    "difficult_feedback": {
+        "label": "Difficult Feedback Conversation",
+        "framing": "This is practice for delivering or receiving difficult professional feedback.",
+        "basic_questions": [
+            "Can you walk me through what happened from your perspective?",
+            "How did you feel about how that situation was handled?",
+            "What would you do differently if this came up again?",
+            "What impact do you think this had on the team?",
+            "What do you need from me to move forward productively?",
+        ],
+    },
+}
+
 
 class GemmaAPIError(Exception):
     """Raised when the LLM call fails or returns an unusable response."""
@@ -80,7 +144,7 @@ class GemmaClient:
                         {"role": "user", "content": user},
                     ],
                     "temperature": 0.4,
-                    "max_tokens": 1000,
+                    "max_tokens": 1200,
                 },
                 timeout=60.0,
             )
@@ -105,16 +169,53 @@ class GemmaClient:
         company: str = "",
         experience_level: str = "",
         resume_text: str = "",
+        session_type: str = "job_interview",
+        persona: str = "",
+        panel_mode: bool = False,
+        drill_focus: str = "",
         override: Optional[LLMOverride] = None,
     ) -> List[Dict[str, str]]:
-        basic_question = random.choice(BASIC_QUESTIONS).format(company=company or "the company")
-        remaining = max(num_questions - 1, 0)
+        type_config = SESSION_TYPES.get(session_type, SESSION_TYPES["job_interview"])
+        basic_pool = type_config["basic_questions"]
+        framing = type_config["framing"]
+
+        basic_question = None
+        remaining = num_questions
+        if not drill_focus:
+            basic_question = random.choice(basic_pool).format(company=company or "the company")
+            remaining = max(num_questions - 1, 0)
+
+        if panel_mode:
+            persona_instruction = (
+                "This is a PANEL session with multiple interviewers, each with a distinct voice: "
+                + "; ".join(f'"{key}" = {desc}' for key, desc in PERSONAS.items())
+                + '. For EVERY question in your response, include a "persona" field set to exactly '
+                "one of: " + ", ".join(f'"{k}"' for k in PERSONAS.keys()) + ", rotating through "
+                "them roughly evenly across the questions."
+            )
+        elif persona and persona in PERSONAS:
+            persona_instruction = (
+                f"Write every question and sample answer in the voice of this interviewer "
+                f"persona: {PERSONAS[persona]}. Set every question's \"persona\" field to "
+                f'"{persona}".'
+            )
+        else:
+            persona_instruction = 'Set every question\'s "persona" field to "".'
+
+        drill_instruction = (
+            f"This is a focused practice DRILL, not a full session -- every one of the "
+            f"{num_questions} questions must specifically target and exercise this weak area: "
+            f'"{drill_focus}". Make each question a fresh angle for practicing that exact skill.\n'
+            if drill_focus
+            else ""
+        )
 
         system = (
-            "You are an expert technical and behavioral interviewer. Respond ONLY with a JSON "
-            "object: {\"questions\": [{\"text\": \"...\", \"sample_answer\": \"...\"}, ...]}. "
+            f"You are an expert interview coach. {framing} Respond ONLY with a JSON object: "
+            '{"questions": [{"text": "...", "sample_answer": "...", "persona": "..."}, ...]}. '
             "sample_answer should be a strong, concise model answer (3-5 sentences) a top "
-            "candidate might give, useful for the candidate to compare against afterward."
+            "candidate might give, useful for the candidate to compare against afterward. "
+            f"{persona_instruction}"
         )
         experience_line = (
             f"Candidate's experience level: {experience_level}. Calibrate question difficulty and "
@@ -128,31 +229,49 @@ class GemmaClient:
             if resume_text.strip()
             else ""
         )
-        user = (
-            f"The FIRST question must be exactly this basic warm-up question (do not alter the "
-            f'wording): "{basic_question}" -- write a tailored sample_answer for it given the '
-            f"role/company context below.\n"
-            f"{experience_line}"
-            f"Then generate {remaining} additional realistic mock interview questions for the "
-            f"role: {role}"
-            + (f" at {company}" if company else "")
-            + f".\nJob description context (may be empty): {job_description}\n"
-            f"{resume_block}"
-            "Mix behavioral questions with role-specific technical questions tailored to this "
-            "role's actual industry/domain (e.g. a manufacturing role should get questions about "
-            "topics like quality control or product recalls, not generic software questions). "
-            "Order the additional questions from EASIEST to HARDEST -- the last question should "
-            "be the most challenging. "
-            f"Return {num_questions} questions total, in order, with the basic warm-up question first."
-        )
+
+        if drill_focus:
+            user = (
+                f"{drill_instruction}"
+                f"Role: {role}"
+                + (f" at {company}" if company else "")
+                + f".\nJob description context (may be empty): {job_description}\n"
+                f"{experience_line}{resume_block}"
+                f"Return exactly {num_questions} drill questions total, ordered easiest to hardest."
+            )
+        else:
+            user = (
+                f"The FIRST question must be exactly this basic warm-up question (do not alter the "
+                f'wording): "{basic_question}" -- write a tailored sample_answer for it given the '
+                f"role/company context below.\n"
+                f"{experience_line}"
+                f"Then generate {remaining} additional questions for the role: {role}"
+                + (f" at {company}" if company else "")
+                + f".\nJob description context (may be empty): {job_description}\n"
+                f"{resume_block}"
+                "Mix behavioral questions with role-specific technical questions tailored to this "
+                "role's actual industry/domain (e.g. a manufacturing role should get questions "
+                "about topics like quality control or product recalls, not generic software "
+                "questions). Order the additional questions from EASIEST to HARDEST -- the last "
+                "question should be the most challenging. "
+                f"Return {num_questions} questions total, in order, with the basic warm-up "
+                "question first."
+            )
+
         content = self._chat(system, user, override)
         data = _extract_json(content)
         questions = [
-            {"text": q["text"], "sample_answer": q.get("sample_answer", "")}
+            {
+                "text": q["text"],
+                "sample_answer": q.get("sample_answer", ""),
+                "persona": q.get("persona", "") if (panel_mode or persona) else "",
+            }
             for q in list(data["questions"])[:num_questions]
         ]
-        if not questions or questions[0]["text"].strip() != basic_question:
-            questions.insert(0, {"text": basic_question, "sample_answer": ""})
+        if not drill_focus and (not questions or questions[0]["text"].strip() != basic_question):
+            questions.insert(
+                0, {"text": basic_question, "sample_answer": "", "persona": persona if persona and not panel_mode else ""}
+            )
             questions = questions[:num_questions]
         return questions
 
@@ -161,8 +280,10 @@ class GemmaClient:
         question: str,
         transcript: str,
         prosody: Dict[str, float],
+        persona: str = "",
         override: Optional[LLMOverride] = None,
     ) -> Dict[str, Any]:
+        persona_desc = PERSONAS.get(persona, "a skilled, perceptive interviewer")
         system = (
             "You are a supportive but honest interview coach. You are given a candidate's "
             "transcribed answer plus objective speech-delivery measurements. "
@@ -170,7 +291,11 @@ class GemmaClient:
             "content_score (0-100 int), delivery_score (0-100 int), "
             "content_feedback (string, 1-3 sentences on structure/specificity/STAR method), "
             "delivery_feedback (string, 1-3 sentences translating the raw speech metrics into "
-            "plain-English coaching about pace, tone/monotone, filler words, and pauses)."
+            "plain-English coaching about pace, tone/monotone, filler words, and pauses), "
+            "follow_up (string or null: a natural, challenging follow-up question a real "
+            f"interviewer -- specifically {persona_desc} -- would ask to probe deeper or play "
+            "devil's advocate if this answer left something unexplored or unconvincing; null if "
+            "the answer was already thorough)."
         )
         user = (
             f"Question: {question}\n"
@@ -190,12 +315,14 @@ class GemmaClient:
         qa_pairs: List[Dict[str, Any]],
         avg_content_score: int,
         avg_delivery_score: int,
+        session_type: str = "job_interview",
         override: Optional[LLMOverride] = None,
     ) -> Dict[str, Any]:
+        framing = SESSION_TYPES.get(session_type, SESSION_TYPES["job_interview"])["framing"]
         system = (
-            "You are an interview coach writing a short end-of-session report. "
+            f"You are a coach writing a short end-of-session report. {framing} "
             "Respond ONLY with a JSON object: "
-            "{\"summary\": \"2-4 sentence overview\", \"top_actions\": [\"action 1\", \"action 2\", \"action 3\"]}."
+            '{"summary": "2-4 sentence overview", "top_actions": ["action 1", "action 2", "action 3"]}.'
         )
         transcript_block = "\n".join(
             f"- Q: {qa['question']}\n  A: {qa['transcript']}\n"
@@ -211,6 +338,29 @@ class GemmaClient:
         )
         content = self._chat(system, user, override)
         return _extract_json(content)
+
+    def generate_cheat_sheet(
+        self,
+        role: str,
+        qa_pairs: List[Dict[str, Any]],
+        override: Optional[LLMOverride] = None,
+    ) -> str:
+        system = (
+            "You are an interview coach creating a personalized one-page 'cheat sheet' for a "
+            "candidate to glance at right before their real interview. Respond ONLY with a JSON "
+            'object: {"cheat_sheet": "markdown text"}. Use short bullet points grouped under 2-4 '
+            "headings (e.g. Key Stories, Strengths to Emphasize, Watch-outs). Base it on the "
+            "candidate's actual best-scoring answers below -- distill their real talking points, "
+            "don't invent generic advice."
+        )
+        transcript_block = "\n".join(
+            f"- Q: {qa['question']}\n  A: {qa['transcript']}\n"
+            f"  content_score={qa['content_score']} delivery_score={qa['delivery_score']}"
+            for qa in qa_pairs
+        )
+        user = f"Role: {role}\nPer-question detail:\n{transcript_block}\n"
+        content = self._chat(system, user, override)
+        return _extract_json(content).get("cheat_sheet", "")
 
 
 gemma_client = GemmaClient()

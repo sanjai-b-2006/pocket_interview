@@ -1,7 +1,7 @@
 import datetime
 import uuid
 
-from sqlalchemy import Column, DateTime, Float, ForeignKey, Integer, JSON, String, create_engine
+from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, JSON, String, create_engine
 from sqlalchemy.orm import declarative_base, relationship, sessionmaker
 
 from app.core.config import settings
@@ -25,6 +25,10 @@ class InterviewSession(Base):
     company = Column(String, default="")
     experience_level = Column(String, default="")
     job_description = Column(String, default="")
+    session_type = Column(String, default="job_interview")  # job_interview | salary_negotiation | performance_review | difficult_feedback
+    persona = Column(String, default="")  # interviewer persona key, ignored if panel_mode
+    panel_mode = Column(Boolean, default=False)
+    drill_focus = Column(String, default="")  # non-empty for a weakness-drill session
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     status = Column(String, default="active")  # active | completed
 
@@ -39,6 +43,9 @@ class Question(Base):
     order = Column(Integer, nullable=False)
     text = Column(String, nullable=False)
     sample_answer = Column(String, default="")
+    persona = Column(String, default="")  # which persona asks this question (panel mode rotates this)
+    is_dynamic = Column(Boolean, default=False)  # True for AI-inserted follow-up questions
+    parent_question_id = Column(String, default="")  # id of the question this follows up on, if any
 
     session = relationship("InterviewSession", back_populates="questions")
     answer = relationship("Answer", back_populates="question", uselist=False)
@@ -57,6 +64,7 @@ class Answer(Base):
     filler_word_count = Column(Integer, default=0)
     pause_ratio = Column(Float, default=0.0)
     volume_consistency = Column(Float, default=0.0)
+    delivery_timeline = Column(JSON, default=list)  # [{t, wpm, pitch_variation}, ...] over the answer
 
     content_score = Column(Integer, default=0)
     delivery_score = Column(Integer, default=0)
@@ -75,6 +83,7 @@ class Report(Base):
     top_actions = Column(JSON, default=list)
     avg_content_score = Column(Integer, default=0)
     avg_delivery_score = Column(Integer, default=0)
+    cheat_sheet = Column(String, default="")  # lazily generated on first request
 
 
 def init_db() -> None:

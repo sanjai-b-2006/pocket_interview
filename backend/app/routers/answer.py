@@ -33,8 +33,8 @@ async def submit_answer(
         tmp_path = tmp.name
 
     try:
-        answer = interview.process_answer(db, question, tmp_path, override)
+        answer, follow_up_question = interview.process_answer(db, question, tmp_path, override)
     finally:
         os.unlink(tmp_path)
 
-    return AnswerFeedbackOut.from_answer(answer)
+    return AnswerFeedbackOut.from_answer(answer, follow_up_question)

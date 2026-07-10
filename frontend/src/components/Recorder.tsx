@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Mic, Square, RotateCcw, Send } from "lucide-react";
+import { Mic, Square, RotateCcw, Send, Zap } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 
 type RecorderState = "idle" | "recording" | "recorded" | "error";
@@ -13,11 +13,16 @@ interface RecorderProps {
   timerSeconds?: number;
 }
 
+const LIVE_FILLER_WORDS = new Set(["um", "umm", "uh", "uhh", "like", "actually", "basically", "literally"]);
+
 export function Recorder({ onSubmit, disabled, timerEnabled = false, timerSeconds = 90 }: RecorderProps) {
   const [state, setState] = useState<RecorderState>("idle");
   const [elapsed, setElapsed] = useState(0);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [liveWpm, setLiveWpm] = useState(0);
+  const [liveFillers, setLiveFillers] = useState(0);
+  const [liveSupported, setLiveSupported] = useState(false);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -27,19 +32,35 @@ export function Recorder({ onSubmit, disabled, timerEnabled = false, timerSecond
   const audioCtxRef = useRef<AudioContext | null>(null);
   const rafRef = useRef<number | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const recognitionRef = useRef<any>(null);
+  const liveTextRef = useRef<string>("");
+  const elapsedRef = useRef(0);
 
   useEffect(() => {
+    const SpeechRecognitionCtor =
+      typeof window !== "undefined" &&
+      ((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition);
+    setLiveSupported(!!SpeechRecognitionCtor);
     return () => {
       cleanup();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    elapsedRef.current = elapsed;
+  }, [elapsed]);
+
   function cleanup() {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
     if (timerRef.current) clearInterval(timerRef.current);
     streamRef.current?.getTracks().forEach((t) => t.stop());
     audioCtxRef.current?.close().catch(() => {});
+    try {
+      recognitionRef.current?.stop();
+    } catch {
+      // ignore
+    }
   }
 
   function drawWaveform(analyser: AnalyserNode) {
@@ -72,6 +93,44 @@ export function Recorder({ onSubmit, disabled, timerEnabled = false, timerSecond
     render();
   }
 
+  function startLiveCoaching() {
+    const SpeechRecognitionCtor =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognitionCtor) return;
+
+    liveTextRef.current = "";
+    setLiveWpm(0);
+    setLiveFillers(0);
+
+    const recognition = new SpeechRecognitionCtor();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = "en-US";
+
+    recognition.onresult = (event: any) => {
+      let combined = "";
+      for (let i = 0; i < event.results.length; i++) {
+        combined += event.results[i][0].transcript + " ";
+      }
+      liveTextRef.current = combined;
+
+      const words = combined.trim().split(/\s+/).filter(Boolean);
+      const minutes = Math.max(elapsedRef.current / 60, 1 / 60);
+      setLiveWpm(Math.round(words.length / minutes));
+      setLiveFillers(words.filter((w) => LIVE_FILLER_WORDS.has(w.toLowerCase().replace(/[^a-z']/g, ""))).length);
+    };
+    recognition.onerror = () => {
+      // Live coaching is a bonus feature -- fail silently, recording itself is unaffected.
+    };
+
+    try {
+      recognition.start();
+      recognitionRef.current = recognition;
+    } catch {
+      // ignore -- some browsers throw if called twice in quick succession
+    }
+  }
+
   async function startRecording() {
     setErrorMessage(null);
     try {
@@ -98,12 +157,18 @@ export function Recorder({ onSubmit, disabled, timerEnabled = false, timerSecond
         setState("recorded");
         if (rafRef.current) cancelAnimationFrame(rafRef.current);
         if (timerRef.current) clearInterval(timerRef.current);
+        try {
+          recognitionRef.current?.stop();
+        } catch {
+          // ignore
+        }
         stream.getTracks().forEach((t) => t.stop());
       };
 
       recorder.start();
       setState("recording");
       setElapsed(0);
+      startLiveCoaching();
       timerRef.current = setInterval(() => {
         setElapsed((e) => {
           const next = e + 1;
@@ -143,6 +208,7 @@ export function Recorder({ onSubmit, disabled, timerEnabled = false, timerSecond
   const mm = String(Math.floor(displaySeconds / 60)).padStart(2, "0");
   const ss = String(displaySeconds % 60).padStart(2, "0");
   const timeLow = timerEnabled && displaySeconds <= 10;
+  const paceHot = liveWpm > 170;
 
   return (
     <div className="flex flex-col items-center gap-4">
@@ -154,10 +220,23 @@ export function Recorder({ onSubmit, disabled, timerEnabled = false, timerSecond
       />
 
       {state === "recording" && (
-        <span className={`font-mono text-sm ${timeLow ? "text-red-400" : "text-foreground/70"}`}>
-          {timerEnabled ? "Time left: " : ""}
-          {mm}:{ss}
-        </span>
+        <div className="flex flex-col items-center gap-2">
+          <span className={`font-mono text-base ${timeLow ? "text-red-400" : "text-foreground/70"}`}>
+            {timerEnabled ? "Time left: " : ""}
+            {mm}:{ss}
+          </span>
+          {liveSupported && elapsed > 2 && (
+            <div className="flex items-center gap-3 rounded-full border border-panel-border bg-black/20 px-4 py-1.5 text-xs">
+              <span className={`flex items-center gap-1 ${paceHot ? "text-red-400" : "text-foreground/60"}`}>
+                <Zap size={12} /> {liveWpm} wpm
+              </span>
+              <span className="text-foreground/30">|</span>
+              <span className={liveFillers >= 3 ? "text-red-400" : "text-foreground/60"}>
+                {liveFillers} filler{liveFillers === 1 ? "" : "s"}
+              </span>
+            </div>
+          )}
+        </div>
       )}
 
       {errorMessage && <p className="text-sm text-red-400">{errorMessage}</p>}

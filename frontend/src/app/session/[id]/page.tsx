@@ -3,7 +3,16 @@
 import { use, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowRight, FileText } from "lucide-react";
+import { ArrowRight, FileText, Volume2 } from "lucide-react";
+import {
+  CartesianGrid,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
@@ -11,6 +20,7 @@ import { ScoreRing } from "@/components/ui/ScoreRing";
 import { Recorder } from "@/components/Recorder";
 import { getSession, submitAnswer, AnswerFeedback, Question } from "@/lib/api";
 import { getSettings, AppSettings, DEFAULT_SETTINGS } from "@/lib/settings";
+import { personaLabel } from "@/lib/constants";
 
 export default function SessionPage({ params }: { params: Promise<{ id: string }> }) {
   const { id: sessionId } = use(params);
@@ -23,6 +33,7 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
   const [feedback, setFeedback] = useState<AnswerFeedback | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
+  const [speaking, setSpeaking] = useState(false);
 
   useEffect(() => {
     setSettings(getSettings());
@@ -41,6 +52,15 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
     try {
       const result = await submitAnswer(sessionId, questions[index].id, blob);
       setFeedback(result);
+      if (result.follow_up_question) {
+        const followUp = result.follow_up_question;
+        setQuestions((prev) => {
+          if (!prev) return prev;
+          const next = [...prev];
+          next.splice(index + 1, 0, followUp);
+          return next;
+        });
+      }
     } catch {
       setError("Couldn't analyze that answer. Check the backend and try again.");
     }
@@ -54,6 +74,17 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
     } else {
       router.push(`/session/${sessionId}/report`);
     }
+  }
+
+  function speakQuestion(text: string) {
+    if (typeof window === "undefined" || !window.speechSynthesis) return;
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.rate = 0.95;
+    utterance.onstart = () => setSpeaking(true);
+    utterance.onend = () => setSpeaking(false);
+    utterance.onerror = () => setSpeaking(false);
+    window.speechSynthesis.speak(utterance);
   }
 
   if (error && !questions) {
@@ -76,6 +107,11 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
 
   const question = questions[index];
   const isLast = index + 1 === questions.length;
+  const timelineData = (feedback?.delivery_timeline || []).map((p) => ({
+    t: `${Math.round(p.t)}s`,
+    wpm: Math.round(p.words_per_minute),
+    tone: Math.round(p.pitch_variation * 100),
+  }));
 
   return (
     <main className="flex flex-1 flex-col items-center px-6 py-12 gap-6">
@@ -91,7 +127,7 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
             />
           ))}
         </div>
-        <span className="text-sm text-foreground/50">
+        <span className="text-base text-foreground/50">
           {index + 1} / {questions.length}
         </span>
       </div>
@@ -106,8 +142,23 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
           className="w-full max-w-2xl"
         >
           <Card>
-            <p className="text-xs uppercase tracking-wide text-foreground/40 mb-2">Question</p>
-            <h2 className="text-xl font-medium mb-6">{question.text}</h2>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs uppercase tracking-wide text-foreground/40">
+                Question{question.is_dynamic ? " · follow-up" : ""}
+              </p>
+              <div className="flex items-center gap-2">
+                {question.persona && <Badge className="text-xs">{personaLabel(question.persona)}</Badge>}
+                <button
+                  type="button"
+                  onClick={() => speakQuestion(question.text)}
+                  className={`text-foreground/50 hover:text-foreground transition-colors ${speaking ? "text-accent-2" : ""}`}
+                  aria-label="Play question aloud"
+                >
+                  <Volume2 size={18} />
+                </button>
+              </div>
+            </div>
+            <h2 className="text-2xl font-medium mb-6">{question.text}</h2>
 
             {!feedback && (
               <Recorder
@@ -140,6 +191,28 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
                   />
                 </div>
 
+                {timelineData.length > 1 && (
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-foreground/40 mb-2">
+                      Delivery over time
+                    </p>
+                    <div className="h-32 rounded-xl border border-panel-border bg-black/20 p-2">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={timelineData}>
+                          <CartesianGrid stroke="var(--panel-border)" strokeDasharray="4 4" />
+                          <XAxis dataKey="t" stroke="#8888a0" fontSize={10} />
+                          <YAxis stroke="#8888a0" fontSize={10} />
+                          <Tooltip
+                            contentStyle={{ background: "#0f0f1a", border: "1px solid #24243a", borderRadius: 8 }}
+                          />
+                          <Line type="monotone" dataKey="wpm" stroke="var(--accent-2)" strokeWidth={2} dot={false} name="Pace (wpm)" />
+                          <Line type="monotone" dataKey="tone" stroke="var(--accent)" strokeWidth={2} dot={false} name="Tone %" />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                )}
+
                 <div className="flex flex-col gap-3">
                   <FeedbackBlock title="Content feedback" body={feedback.content_feedback} />
                   <FeedbackBlock title="Voice & tone feedback" body={feedback.delivery_feedback} />
@@ -147,6 +220,18 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
                     <FeedbackBlock title="Sample answer" body={feedback.sample_answer} />
                   )}
                 </div>
+
+                {feedback.follow_up_question && (
+                  <div className="rounded-xl border border-accent/50 bg-accent/10 p-4">
+                    <p className="text-xs uppercase tracking-wide text-accent-2 mb-1">
+                      Follow-up incoming
+                    </p>
+                    <p className="text-sm text-foreground/80">
+                      Your interviewer wants to dig deeper &mdash; a follow-up question has been
+                      added right after this one.
+                    </p>
+                  </div>
+                )}
 
                 <Button onClick={handleNext} className="self-end">
                   {isLast ? (
